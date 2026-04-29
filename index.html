@@ -53,7 +53,7 @@
 -->
 <script>
   (function() {
-    const CURRENT_VERSION = '2026-04-22-1700-v9.3';
+    const CURRENT_VERSION = '2026-04-22-1800-v9.4';
     const STORED_VERSION = localStorage.getItem('__app_version__');
 
     // 第一次使用，記錄當前版本
@@ -269,6 +269,7 @@
   const ClipboardList = getIcon('ClipboardList');
   const CircleDollarSign = getIcon('CircleDollarSign');
   const Gift = getIcon('Gift');
+  const Zap = getIcon('Zap');
   const CheckCircle2 = getIcon('CheckCircle2');
   const Circle = getIcon('Circle');
   const Play = getIcon('Play');
@@ -562,6 +563,7 @@ function App() {
     const hash = window.location.hash;
     if (hash.startsWith('#vote')) return 'vote';
     if (hash.startsWith('#signup')) return 'signup';
+    if (hash.startsWith('#buzzer')) return 'buzzer';
     if (hash.startsWith('#admin')) return 'admin';
     return 'public'; // 預設是前台預告頁
   });
@@ -571,6 +573,7 @@ function App() {
       const hash = window.location.hash;
       if (hash.startsWith('#vote')) setRoute('vote');
       else if (hash.startsWith('#signup')) setRoute('signup');
+      else if (hash.startsWith('#buzzer')) setRoute('buzzer');
       else if (hash.startsWith('#admin')) setRoute('admin');
       else setRoute('public');
     };
@@ -580,6 +583,7 @@ function App() {
 
   if (route === 'vote') return <VoterPage />;
   if (route === 'signup') return <SignupPage />;
+  if (route === 'buzzer') return <BuzzerPage />;
   if (route === 'admin') return <AdminGate />;
 
   return <PublicPage />;
@@ -1072,6 +1076,8 @@ function AdminApp({ onLogout }) {
   const [songs, setSongs] = useState(DEFAULT_SONGS);
   const [quizQuestions, setQuizQuestions] = useState(DEFAULT_QUIZ);
   const [sponsorships, setSponsorships] = useState([]);
+  // 搶答系統：{ open: bool, locked: bool, buzzes: [{name, ts}] }
+  const [buzzer, setBuzzer] = useState({ open: false, locked: false, buzzes: [] });
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
 
   const [loading, setLoading] = useState(true);
@@ -1099,6 +1105,7 @@ function AdminApp({ onLogout }) {
           if (d.songs) setSongs(ensureIds(d.songs));
           if (d.quizQuestions) setQuizQuestions(ensureIds(d.quizQuestions));
           if (d.sponsorships) setSponsorships(ensureIds(d.sponsorships));
+          if (d.buzzer) setBuzzer(d.buzzer);
           if (d.settings) setSettings({ ...DEFAULT_SETTINGS, ...d.settings });
         }
       } catch (e) {}
@@ -1134,6 +1141,7 @@ function AdminApp({ onLogout }) {
         if (d.songs) setSongs(ensureIds(d.songs));
         if (d.quizQuestions) setQuizQuestions(ensureIds(d.quizQuestions));
         if (d.sponsorships) setSponsorships(ensureIds(d.sponsorships));
+          if (d.buzzer) setBuzzer(d.buzzer);
         if (d.settings) setSettings({ ...DEFAULT_SETTINGS, ...d.settings });
       } catch (err) {
         console.warn('同步解析失敗:', err);
@@ -1185,6 +1193,7 @@ function AdminApp({ onLogout }) {
       if (d.songs) setSongs(ensureIds(d.songs));
       if (d.quizQuestions) setQuizQuestions(ensureIds(d.quizQuestions));
       if (d.sponsorships) setSponsorships(ensureIds(d.sponsorships));
+          if (d.buzzer) setBuzzer(d.buzzer);
       if (d.settings) setSettings({ ...DEFAULT_SETTINGS, ...d.settings });
       lastSavedJsonRef.current = prevJson; // 更新當前快照
       setShowUndoConfirm(false);
@@ -1204,9 +1213,9 @@ function AdminApp({ onLogout }) {
 
   useEffect(() => {
     if (loading || !autoSaveReady) return;
-    const t = setTimeout(() => saveData({ flow, budget, awards, staff, registrations, contestants, contestantVotes, votingOpen, showVoteResults, songs, quizQuestions, sponsorships, settings }), 800);
+    const t = setTimeout(() => saveData({ flow, budget, awards, staff, registrations, contestants, contestantVotes, votingOpen, showVoteResults, songs, quizQuestions, sponsorships, buzzer, settings }), 800);
     return () => clearTimeout(t);
-  }, [flow, budget, awards, staff, registrations, contestants, contestantVotes, votingOpen, showVoteResults, songs, quizQuestions, sponsorships, settings, loading, autoSaveReady, saveData]);
+  }, [flow, budget, awards, staff, registrations, contestants, contestantVotes, votingOpen, showVoteResults, songs, quizQuestions, sponsorships, buzzer, settings, loading, autoSaveReady, saveData]);
 
   const calc = useMemo(() => {
     const ctx = budget.assumptions;
@@ -1380,6 +1389,7 @@ function AdminApp({ onLogout }) {
           showVoteResults={showVoteResults} setShowVoteResults={setShowVoteResults}
           songs={songs} setSongs={setSongs}
           quizQuestions={quizQuestions} setQuizQuestions={setQuizQuestions}
+          buzzer={buzzer} setBuzzer={setBuzzer}
         />}
         {tab === 'registration' && <RegistrationTab registrations={registrations} setRegistrations={setRegistrations} budget={budget} calc={calc} settings={settings} />}
         {tab === 'awards' && <AwardsTab awards={awards} setAwards={setAwards} />}
@@ -1452,8 +1462,8 @@ function SaveDot({ status }) {
 }
 
 // ============== 現場活動分頁 ==============
-function ActivitiesTab({ contestants, setContestants, contestantVotes, setContestantVotes, votingOpen, setVotingOpen, showVoteResults, setShowVoteResults, songs, setSongs, quizQuestions, setQuizQuestions }) {
-  const [section, setSection] = useState('runway'); // runway | songs | quiz
+function ActivitiesTab({ contestants, setContestants, contestantVotes, setContestantVotes, votingOpen, setVotingOpen, showVoteResults, setShowVoteResults, songs, setSongs, quizQuestions, setQuizQuestions, buzzer, setBuzzer }) {
+  const [section, setSection] = useState('runway'); // runway | songs | quiz | buzzer
 
   return (
     <div className="space-y-4">
@@ -1463,11 +1473,12 @@ function ActivitiesTab({ contestants, setContestants, contestantVotes, setContes
       </div>
 
       {/* 子分頁切換 */}
-      <div className="bg-white rounded-xl p-1 shadow-sm border grid grid-cols-3 gap-1" style={{ borderColor: '#FCD34D' }}>
+      <div className="bg-white rounded-xl p-1 shadow-sm border grid grid-cols-4 gap-1" style={{ borderColor: '#FCD34D' }}>
         {[
           { id: 'runway', label: '走秀投票', icon: Vote },
           { id: 'songs', label: '百萬大歌星', icon: Music2 },
           { id: 'quiz', label: '趣味競答', icon: HelpCircle },
+          { id: 'buzzer', label: '搶答系統', icon: Zap },
         ].map(({ id, label, icon: Icon }) => (
           <button key={id} onClick={() => setSection(id)} className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition"
             style={{ background: section === id ? 'linear-gradient(135deg, #F5B800, #FF9F1C)' : 'transparent', color: section === id ? 'white' : '#92400E' }}>
@@ -1480,6 +1491,7 @@ function ActivitiesTab({ contestants, setContestants, contestantVotes, setContes
       {section === 'runway' && <RunwaySection contestants={contestants} setContestants={setContestants} contestantVotes={contestantVotes} setContestantVotes={setContestantVotes} votingOpen={votingOpen} setVotingOpen={setVotingOpen} showVoteResults={showVoteResults} setShowVoteResults={setShowVoteResults} />}
       {section === 'songs' && <SongsSection songs={songs} setSongs={setSongs} />}
       {section === 'quiz' && <QuizSection quizQuestions={quizQuestions} setQuizQuestions={setQuizQuestions} />}
+      {section === 'buzzer' && <BuzzerSection buzzer={buzzer} setBuzzer={setBuzzer} />}
     </div>
   );
 }
@@ -1969,6 +1981,165 @@ function QuizCard({ question: q, idx, onUpdate, onRemove }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ============== 搶答系統控制（後台） ==============
+function BuzzerSection({ buzzer, setBuzzer }) {
+  const buzzes = buzzer?.buzzes || [];
+  const [showQR, setShowQR] = useState(false);
+
+  const startRound = () => {
+    setBuzzer({ open: true, locked: false, buzzes: [], roundId: Date.now() });
+  };
+  const lockRound = () => {
+    setBuzzer({ ...buzzer, open: false, locked: true });
+  };
+  const resumeRound = () => {
+    // 重新開放（例如解鎖讓更多人加入）
+    setBuzzer({ ...buzzer, open: true, locked: false });
+  };
+  const newRound = () => {
+    setBuzzer({ open: false, locked: false, buzzes: [], roundId: Date.now() });
+  };
+
+  const getBuzzerUrl = () => {
+    if (typeof window === 'undefined') return '';
+    return window.location.origin + window.location.pathname + '#buzzer';
+  };
+
+  // 狀態判定
+  let statusText, statusBg;
+  if (!buzzer.open && !buzzer.locked) {
+    statusText = '⏸️ 待機中（按「開始本回合」讓會員可以搶答）';
+    statusBg = '#6B7280';
+  } else if (buzzer.open && !buzzer.locked) {
+    statusText = '🟢 開放搶答中';
+    statusBg = '#10B981';
+  } else if (buzzer.locked) {
+    statusText = '🔒 已鎖定（按「下一回合」開新題）';
+    statusBg = '#DC2626';
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-2xl p-5 shadow-sm border" style={{ borderColor: '#FCD34D' }}>
+        <div className="flex items-center gap-2 mb-3">
+          <Zap className="w-5 h-5" style={{ color: '#F5B800' }} />
+          <h3 className="font-bold">搶答系統控制台</h3>
+        </div>
+        <div className="text-xs text-gray-600 mb-4">
+          會員手機掃 QR Code → 輸入姓名 → 等主持人開放搶答 → 比手速！
+        </div>
+
+        {/* 狀態 */}
+        <div className="rounded-xl p-3 mb-4 text-white text-center font-bold text-sm" style={{ background: statusBg }}>
+          {statusText}
+        </div>
+
+        {/* 控制按鈕 */}
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          {!buzzer.open && !buzzer.locked && (
+            <button onClick={startRound} className="col-span-2 py-3 rounded-xl text-white font-bold shadow-lg active:scale-95 transition" style={{ background: 'linear-gradient(135deg, #10B981, #059669)' }}>
+              🎯 開始本回合（開放搶答）
+            </button>
+          )}
+          {buzzer.open && !buzzer.locked && (
+            <button onClick={lockRound} className="col-span-2 py-3 rounded-xl text-white font-bold shadow-lg active:scale-95 transition" style={{ background: 'linear-gradient(135deg, #DC2626, #991B1B)' }}>
+              🔒 鎖定回合（停止搶答）
+            </button>
+          )}
+          {buzzer.locked && (
+            <>
+              <button onClick={resumeRound} className="py-3 rounded-xl text-white font-bold shadow-lg active:scale-95 transition" style={{ background: 'linear-gradient(135deg, #3B82F6, #2563EB)' }}>
+                ↻ 繼續本回合
+              </button>
+              <button onClick={newRound} className="py-3 rounded-xl text-white font-bold shadow-lg active:scale-95 transition" style={{ background: 'linear-gradient(135deg, #F5B800, #FF9F1C)' }}>
+                ➡️ 下一回合
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* 重置 */}
+        {buzzes.length > 0 && (
+          <button onClick={() => { if (confirm('清空所有搶答紀錄並重新開始？')) newRound(); }}
+            className="w-full text-xs py-2 rounded-lg border" style={{ borderColor: '#FCA5A5', color: '#DC2626' }}>
+            🗑 清空並重置
+          </button>
+        )}
+      </div>
+
+      {/* 排行榜 */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm border" style={{ borderColor: '#FCD34D' }}>
+        <div className="flex items-center justify-between mb-3">
+          <div className="font-bold flex items-center gap-2">
+            <span>🏆 搶答排行</span>
+            <span className="text-xs font-normal" style={{ color: '#92400E' }}>已 {buzzes.length} 人搶答</span>
+          </div>
+        </div>
+        {buzzes.length === 0 ? (
+          <div className="text-center py-6 text-sm text-gray-400">尚無搶答記錄</div>
+        ) : (
+          <div className="space-y-1.5">
+            {buzzes.slice(0, 3).map((b, i) => {
+              const firstTs = buzzes[0].ts;
+              const diff = b.ts - firstTs;
+              return (
+                <div key={i} className="flex items-center justify-between px-3 py-3 rounded-xl" style={{ background: i === 0 ? 'linear-gradient(135deg, #FEF3C7, #FDE68A)' : '#FFFBEA', border: i === 0 ? '2px solid #F5B800' : '1px solid #FCD34D' }}>
+                  <div className="flex items-center gap-3">
+                    <div className="text-3xl">{i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}</div>
+                    <div>
+                      <div className="font-bold text-lg" style={{ color: i === 0 ? '#92400E' : '#1F2937' }}>{b.name}</div>
+                      <div className="text-[10px] text-gray-500">
+                        {i === 0 ? '最快' : `+${diff} ms`}
+                      </div>
+                    </div>
+                  </div>
+                  {i === 0 && <div className="text-xs px-2 py-1 rounded-full font-bold text-white" style={{ background: '#F5B800' }}>WINNER</div>}
+                </div>
+              );
+            })}
+            {buzzes.length > 3 && (
+              <details className="mt-2">
+                <summary className="text-xs text-gray-500 cursor-pointer pl-2">第 4 名以後（{buzzes.length - 3} 人）</summary>
+                <div className="space-y-1 mt-2">
+                  {buzzes.slice(3).map((b, i) => {
+                    const firstTs = buzzes[0].ts;
+                    const diff = b.ts - firstTs;
+                    return (
+                      <div key={i + 3} className="flex items-center justify-between px-3 py-2 rounded-lg text-sm" style={{ background: '#F9FAFB' }}>
+                        <div>{i + 4}. {b.name}</div>
+                        <div className="text-[10px] text-gray-500">+{diff} ms</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </details>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 會員入口 QR Code */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm border" style={{ borderColor: '#FCD34D' }}>
+        <div className="flex items-center justify-between mb-3">
+          <div className="font-bold">📱 會員入口 QR Code</div>
+          <button onClick={() => setShowQR(!showQR)} className="text-xs px-3 py-1 rounded-lg" style={{ background: '#FFFBEA', color: '#92400E' }}>
+            {showQR ? '隱藏' : '顯示'}
+          </button>
+        </div>
+        {showQR && (
+          <div className="text-center">
+            <div className="inline-block p-3 rounded-xl mb-2" style={{ background: 'white', border: '1px solid #FCD34D' }}>
+              <img alt="QR" src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(getBuzzerUrl())}`} />
+            </div>
+            <div className="text-xs break-all px-2" style={{ color: '#92400E' }}>{getBuzzerUrl()}</div>
+            <button onClick={() => { navigator.clipboard?.writeText(getBuzzerUrl()); alert('連結已複製'); }} className="mt-2 text-xs px-3 py-1 rounded" style={{ background: '#FEF3C7', color: '#92400E' }}>📋 複製連結</button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -3983,6 +4154,219 @@ function SignupPage() {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// ============== 搶答前台（會員手機） ==============
+function BuzzerPage() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [myName, setMyName] = useState(() => {
+    try { return localStorage.getItem('fule_buzzer_name') || ''; } catch (e) { return ''; }
+  });
+  const [entered, setEntered] = useState(() => {
+    try { return !!localStorage.getItem('fule_buzzer_name'); } catch (e) { return false; }
+  });
+  const [pressedThisRound, setPressedThisRound] = useState(false);
+  const lastRoundRef = useRef(null);
+
+  // 載入資料 + polling
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const r = await window.storage.get('fule_yellow_party_v7', true);
+        if (r?.value) setData(JSON.parse(r.value));
+      } catch (e) {}
+    };
+    load().then(() => setLoading(false));
+    const t = setInterval(load, 1000); // 1 秒輪詢，搶答需要快
+    return () => clearInterval(t);
+  }, []);
+
+  const buzzer = data?.buzzer || { open: false, locked: false, buzzes: [], roundId: 0 };
+
+  // 偵測新一輪：roundId 變了就重置 pressedThisRound
+  useEffect(() => {
+    if (lastRoundRef.current !== buzzer.roundId) {
+      lastRoundRef.current = buzzer.roundId;
+      setPressedThisRound(false);
+    }
+  }, [buzzer.roundId]);
+
+  const enter = () => {
+    const n = myName.trim();
+    if (!n) { alert('請輸入您的姓名'); return; }
+    try { localStorage.setItem('fule_buzzer_name', n); } catch (e) {}
+    setEntered(true);
+  };
+
+  const changeName = () => {
+    try { localStorage.removeItem('fule_buzzer_name'); } catch (e) {}
+    setEntered(false);
+    setMyName('');
+  };
+
+  const buzz = async () => {
+    if (!buzzer.open || buzzer.locked || pressedThisRound) return;
+    setPressedThisRound(true); // 樂觀鎖
+    const ts = Date.now();
+    try {
+      const r = await window.storage.get('fule_yellow_party_v7', true);
+      if (!r?.value) return;
+      const fresh = JSON.parse(r.value);
+      const fb = fresh.buzzer || { open: false, locked: false, buzzes: [], roundId: 0 };
+      // 檢查最新狀態
+      if (!fb.open || fb.locked) return;
+      // 同名不重複
+      if (fb.buzzes.some(b => b.name === myName.trim())) return;
+      fb.buzzes = [...fb.buzzes, { name: myName.trim(), ts }];
+      fresh.buzzer = fb;
+      await window.storage.set('fule_yellow_party_v7', JSON.stringify(fresh), true);
+      setData(fresh);
+    } catch (e) {
+      setPressedThisRound(false); // 失敗解鎖
+    }
+  };
+
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center" style={{ background: '#FFFBEA' }}>
+      <div className="animate-spin w-12 h-12 rounded-full border-4" style={{ borderColor: '#F5B800', borderTopColor: 'transparent' }}></div>
+    </div>;
+  }
+
+  // 名字輸入頁
+  if (!entered) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'linear-gradient(135deg, #FFFBEA 0%, #FEF3C7 100%)' }}>
+        <div className="bg-white rounded-3xl shadow-2xl p-6 max-w-sm w-full" style={{ border: '2px solid #F5B800' }}>
+          <div className="text-center mb-5">
+            <div className="text-6xl mb-3">🔔</div>
+            <div className="text-xl font-bold" style={{ color: '#1F2937' }}>搶答系統</div>
+            <div className="text-xs mt-1" style={{ color: '#92400E' }}>輸入姓名後即可參加搶答</div>
+          </div>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-bold block mb-1" style={{ color: '#92400E' }}>您的姓名</label>
+              <input value={myName} onChange={e => setMyName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') enter(); }}
+                placeholder="請輸入姓名"
+                autoFocus
+                className="w-full px-4 py-3 rounded-xl border text-base outline-none focus:border-yellow-400"
+                style={{ borderColor: '#FCD34D' }} />
+            </div>
+            <button onClick={enter}
+              className="w-full py-3 rounded-xl text-white font-bold shadow-lg active:scale-95 transition"
+              style={{ background: 'linear-gradient(135deg, #F5B800, #FF9F1C)' }}>
+              進入搶答
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 搶答頁
+  const myBuzzIdx = buzzer.buzzes?.findIndex(b => b.name === myName.trim()) ?? -1;
+  const myRank = myBuzzIdx >= 0 ? myBuzzIdx + 1 : null;
+  const top3 = (buzzer.buzzes || []).slice(0, 3);
+
+  // 狀態判定
+  let statusBg, statusText, statusEmoji, btnDisabled, btnText, btnBg;
+  if (!buzzer.open) {
+    statusBg = 'linear-gradient(135deg, #6B7280, #4B5563)';
+    statusText = '請等待主持人開放搶答';
+    statusEmoji = '⏸️';
+    btnDisabled = true;
+    btnText = '尚未開始';
+    btnBg = '#9CA3AF';
+  } else if (buzzer.locked) {
+    statusBg = 'linear-gradient(135deg, #DC2626, #991B1B)';
+    statusText = '本回合已結束';
+    statusEmoji = '🔒';
+    btnDisabled = true;
+    btnText = '已鎖定';
+    btnBg = '#9CA3AF';
+  } else if (myRank) {
+    statusBg = myRank === 1
+      ? 'linear-gradient(135deg, #F59E0B, #D97706)'
+      : 'linear-gradient(135deg, #3B82F6, #2563EB)';
+    statusText = myRank === 1 ? '🏆 您搶答最快！' : `您是第 ${myRank} 名搶答`;
+    statusEmoji = myRank === 1 ? '🥇' : (myRank === 2 ? '🥈' : (myRank === 3 ? '🥉' : '✓'));
+    btnDisabled = true;
+    btnText = '已搶答';
+    btnBg = '#9CA3AF';
+  } else {
+    statusBg = 'linear-gradient(135deg, #10B981, #059669)';
+    statusText = '🎯 開放搶答中！';
+    statusEmoji = '🚀';
+    btnDisabled = false;
+    btnText = '搶答！';
+    btnBg = 'linear-gradient(135deg, #DC2626, #991B1B)';
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(180deg, #FFFBEA 0%, #FEF3C7 100%)' }}>
+      {/* Header */}
+      <header className="px-4 py-3 shadow-sm" style={{ background: 'white', borderBottom: '1px solid #FCD34D' }}>
+        <div className="max-w-xl mx-auto flex items-center gap-2">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold" style={{ background: 'linear-gradient(135deg, #F5B800, #FF9F1C)' }}>🔔</div>
+          <div className="flex-1">
+            <div className="font-bold text-sm" style={{ color: '#1F2937' }}>搶答系統</div>
+            <div className="text-xs" style={{ color: '#92400E' }}>玩家：{myName} · <button onClick={changeName} className="underline">換名字</button></div>
+          </div>
+        </div>
+      </header>
+
+      <div className="flex-1 max-w-xl w-full mx-auto p-4 flex flex-col">
+        {/* 狀態橫幅 */}
+        <div className="rounded-2xl p-5 text-center text-white shadow-xl mb-6" style={{ background: statusBg }}>
+          <div className="text-5xl mb-2">{statusEmoji}</div>
+          <div className="text-lg font-bold">{statusText}</div>
+        </div>
+
+        {/* 大按鈕 */}
+        <div className="flex-1 flex items-center justify-center py-6">
+          <button onClick={buzz} disabled={btnDisabled}
+            className="rounded-full text-white font-bold text-3xl md:text-4xl shadow-2xl active:scale-90 transition"
+            style={{
+              background: btnBg,
+              width: 'min(80vw, 280px)',
+              height: 'min(80vw, 280px)',
+              opacity: btnDisabled ? 0.6 : 1,
+              cursor: btnDisabled ? 'not-allowed' : 'pointer',
+              boxShadow: btnDisabled ? 'none' : '0 0 60px rgba(220, 38, 38, 0.5), 0 20px 40px rgba(0,0,0,0.3)',
+              animation: !btnDisabled ? 'pulse 1.5s ease-in-out infinite' : 'none',
+            }}>
+            {btnText}
+          </button>
+        </div>
+
+        {/* 前 3 名 */}
+        {top3.length > 0 && (
+          <div className="rounded-2xl p-4 shadow-sm" style={{ background: 'white', border: '1px solid #FCD34D' }}>
+            <div className="text-sm font-bold mb-2" style={{ color: '#92400E' }}>🏆 前 3 名快手</div>
+            <div className="space-y-1.5">
+              {top3.map((b, i) => (
+                <div key={i} className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ background: i === 0 ? '#FEF3C7' : '#FFFBEA' }}>
+                  <div className="flex items-center gap-2">
+                    <div className="text-xl">{i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}</div>
+                    <div className="font-bold" style={{ color: '#1F2937' }}>{b.name}</div>
+                    {b.name === myName.trim() && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500 text-white">您</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.05); }
+        }
+      `}</style>
     </div>
   );
 }
