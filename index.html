@@ -53,7 +53,7 @@
 -->
 <script>
   (function() {
-    const CURRENT_VERSION = '2026-04-22-1800-v9.4';
+    const CURRENT_VERSION = '2026-04-22-1900-v9.5';
     const STORED_VERSION = localStorage.getItem('__app_version__');
 
     // 第一次使用，記錄當前版本
@@ -800,6 +800,18 @@ function PublicPage() {
           </section>
         )}
 
+        {/* 搶答系統入口 */}
+        <button onClick={() => { window.location.hash = 'buzzer'; }}
+          className="w-full rounded-2xl p-5 shadow-lg active:scale-95 transition flex items-center gap-4"
+          style={{ background: 'linear-gradient(135deg, #DC2626, #991B1B)', color: 'white' }}>
+          <div className="text-5xl">🔔</div>
+          <div className="flex-1 text-left">
+            <div className="font-bold text-lg">搶答系統</div>
+            <div className="text-xs opacity-90 mt-0.5">現場互動環節 · 比手速搶答</div>
+          </div>
+          <div className="text-2xl opacity-80">→</div>
+        </button>
+
         {/* 主辦資訊 */}
         <div className="text-center text-xs pt-4 pb-3" style={{ color: '#92400E', opacity: 0.6 }}>
           <div>—— {settings.organizer || '富樂分會'} ——</div>
@@ -1062,7 +1074,13 @@ function VoterPage() {
 
 // ============== 管理員主應用 ==============
 function AdminApp({ onLogout }) {
-  const [tab, setTab] = useState('overview');
+  const [tab, setTabState] = useState(() => {
+    try { return sessionStorage.getItem('fule_admin_tab') || 'overview'; } catch (e) { return 'overview'; }
+  });
+  const setTab = (t) => {
+    try { sessionStorage.setItem('fule_admin_tab', t); } catch (e) {}
+    setTabState(t);
+  };
   const [flow, setFlow] = useState(DEFAULT_FLOW);
   const [budget, setBudget] = useState(DEFAULT_BUDGET);
   const [awards, setAwards] = useState(DEFAULT_AWARDS);
@@ -1463,7 +1481,13 @@ function SaveDot({ status }) {
 
 // ============== 現場活動分頁 ==============
 function ActivitiesTab({ contestants, setContestants, contestantVotes, setContestantVotes, votingOpen, setVotingOpen, showVoteResults, setShowVoteResults, songs, setSongs, quizQuestions, setQuizQuestions, buzzer, setBuzzer }) {
-  const [section, setSection] = useState('runway'); // runway | songs | quiz | buzzer
+  const [section, setSectionState] = useState(() => {
+    try { return sessionStorage.getItem('fule_activities_section') || 'runway'; } catch (e) { return 'runway'; }
+  });
+  const setSection = (s) => {
+    try { sessionStorage.setItem('fule_activities_section', s); } catch (e) {}
+    setSectionState(s);
+  };
 
   return (
     <div className="space-y-4">
@@ -1987,22 +2011,47 @@ function QuizCard({ question: q, idx, onUpdate, onRemove }) {
 
 // ============== 搶答系統控制（後台） ==============
 function BuzzerSection({ buzzer, setBuzzer }) {
-  const buzzes = buzzer?.buzzes || [];
   const [showQR, setShowQR] = useState(false);
 
-  const startRound = () => {
-    setBuzzer({ open: true, locked: false, buzzes: [], roundId: Date.now() });
+  // 快速 polling：每 1 秒拉一次最新 buzzer 狀態（搶答需要即時）
+  useEffect(() => {
+    const t = setInterval(async () => {
+      try {
+        const r = await window.storage.get('fule_yellow_party_v7', true);
+        if (r?.value) {
+          const fresh = JSON.parse(r.value);
+          if (fresh.buzzer) {
+            // 用 setBuzzer 觸發更新（會經由 saveData 重新寫回但其實沒變化）
+            // 為避免循環，比對 JSON 字串
+            const currentStr = JSON.stringify(buzzer);
+            const freshStr = JSON.stringify(fresh.buzzer);
+            if (currentStr !== freshStr) {
+              setBuzzer(fresh.buzzer);
+            }
+          }
+        }
+      } catch (e) {}
+    }, 1000);
+    return () => clearInterval(t);
+  }, [buzzer, setBuzzer]);
+
+  const buzzes = buzzer?.buzzes || [];
+
+  // 主持人按鈕 → 直接寫回 storage 並更新 state
+  const writeBuzzer = async (next) => {
+    setBuzzer(next);
+    try {
+      const r = await window.storage.get('fule_yellow_party_v7', true);
+      const fresh = r?.value ? JSON.parse(r.value) : {};
+      fresh.buzzer = next;
+      await window.storage.set('fule_yellow_party_v7', JSON.stringify(fresh), true);
+    } catch (e) {}
   };
-  const lockRound = () => {
-    setBuzzer({ ...buzzer, open: false, locked: true });
-  };
-  const resumeRound = () => {
-    // 重新開放（例如解鎖讓更多人加入）
-    setBuzzer({ ...buzzer, open: true, locked: false });
-  };
-  const newRound = () => {
-    setBuzzer({ open: false, locked: false, buzzes: [], roundId: Date.now() });
-  };
+
+  const startRound = () => writeBuzzer({ open: true, locked: false, buzzes: [], roundId: Date.now() });
+  const lockRound = () => writeBuzzer({ ...buzzer, open: false, locked: true });
+  const resumeRound = () => writeBuzzer({ ...buzzer, open: true, locked: false });
+  const newRound = () => writeBuzzer({ open: false, locked: false, buzzes: [], roundId: Date.now() });
 
   const getBuzzerUrl = () => {
     if (typeof window === 'undefined') return '';
