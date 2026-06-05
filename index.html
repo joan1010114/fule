@@ -98,7 +98,7 @@
 -->
 <script>
   (function() {
-    const CURRENT_VERSION = '2026-04-23-0700-v9.22';
+    const CURRENT_VERSION = '2026-04-23-1000-v9.25';
     const STORED_VERSION = localStorage.getItem('__app_version__');
 
     // 第一次使用，記錄當前版本
@@ -2195,34 +2195,41 @@ function BuzzerSection({ buzzer, setBuzzer }) {
         </div>
 
         {/* 控制按鈕 */}
-        <div className="grid grid-cols-2 gap-2 mb-3">
+        <div className="space-y-2 mb-3">
+          {/* 主按鈕：依狀態變化 */}
           {!buzzer.open && !buzzer.locked && (
-            <button onClick={startRound} className="col-span-2 py-3 rounded-xl text-white font-bold shadow-lg active:scale-95 transition" style={{ background: 'linear-gradient(135deg, #10B981, #059669)' }}>
-              🎯 開始本回合（開放搶答）
+            <button onClick={startRound} className="w-full py-4 rounded-xl text-white font-bold text-lg shadow-lg active:scale-95 transition" style={{ background: 'linear-gradient(135deg, #10B981, #059669)' }}>
+              🎯 開放搶答
             </button>
           )}
           {buzzer.open && !buzzer.locked && (
-            <button onClick={lockRound} className="col-span-2 py-3 rounded-xl text-white font-bold shadow-lg active:scale-95 transition" style={{ background: 'linear-gradient(135deg, #DC2626, #991B1B)' }}>
-              🔒 鎖定回合（停止搶答）
+            <button onClick={lockRound} className="w-full py-4 rounded-xl text-white font-bold text-lg shadow-lg active:scale-95 transition" style={{ background: 'linear-gradient(135deg, #DC2626, #991B1B)' }}>
+              🔒 鎖定（停止搶答）
             </button>
           )}
+
+          {/* 一鍵重新開放 — 隨時可按，清空後立刻重開新一輪 */}
+          <button onClick={startRound} className="w-full py-4 rounded-xl text-white font-bold text-lg shadow-lg active:scale-95 transition flex items-center justify-center gap-2" style={{ background: 'linear-gradient(135deg, #F5B800, #FF9F1C)' }}>
+            🔄 重新開放搶答（清空再搶）
+          </button>
+
+          {/* 鎖定後可繼續本回合（不清空） */}
           {buzzer.locked && (
-            <>
-              <button onClick={resumeRound} className="py-3 rounded-xl text-white font-bold shadow-lg active:scale-95 transition" style={{ background: 'linear-gradient(135deg, #3B82F6, #2563EB)' }}>
-                ↻ 繼續本回合
-              </button>
-              <button onClick={newRound} className="py-3 rounded-xl text-white font-bold shadow-lg active:scale-95 transition" style={{ background: 'linear-gradient(135deg, #F5B800, #FF9F1C)' }}>
-                ➡️ 下一回合
-              </button>
-            </>
+            <button onClick={resumeRound} className="w-full py-3 rounded-xl text-white font-bold shadow-lg active:scale-95 transition" style={{ background: 'linear-gradient(135deg, #3B82F6, #2563EB)' }}>
+              ↻ 繼續本回合（不清空名單）
+            </button>
           )}
+        </div>
+
+        <div className="text-[11px] text-center mb-2" style={{ color: '#92400E' }}>
+          💡 連續搶答：每搶完一輪，按「🔄 重新開放搶答」就能讓大家再搶一次
         </div>
 
         {/* 重置 */}
         {buzzes.length > 0 && (
-          <button onClick={() => { if (confirm('清空所有搶答紀錄並重新開始？')) newRound(); }}
+          <button onClick={() => { if (confirm('清空所有搶答紀錄並回到待機？')) newRound(); }}
             className="w-full text-xs py-2 rounded-lg border" style={{ borderColor: '#FCA5A5', color: '#DC2626' }}>
-            🗑 清空並重置
+            🗑 清空並回到待機
           </button>
         )}
       </div>
@@ -4678,41 +4685,41 @@ function BuzzerPage() {
 
   const buzzer = data?.buzzer || { open: false, locked: false, buzzes: [], roundId: 0 };
 
-  // 偵測新一輪：roundId 變了就重置 pressedThisRound
+  // 偵測新一輪：roundId 變了就重置 + 若開放則跑倒數
   useEffect(() => {
     if (lastRoundRef.current !== buzzer.roundId) {
       lastRoundRef.current = buzzer.roundId;
       setPressedThisRound(false);
       rankedRef.current = false;
+      // 新一輪且為開放狀態 → 跑 3-2-1 倒數
+      if (buzzer.open && !buzzer.locked && buzzer.roundId) {
+        let n = 3;
+        setCountdown(3);
+        _sfx.tick();
+        if (navigator.vibrate) navigator.vibrate(50);
+        const iv = setInterval(() => {
+          n -= 1;
+          if (n > 0) {
+            setCountdown(n);
+            _sfx.tick();
+            if (navigator.vibrate) navigator.vibrate(50);
+          } else {
+            setCountdown('搶!');
+            _sfx.go();
+            if (navigator.vibrate) navigator.vibrate(150);
+            clearInterval(iv);
+            setTimeout(() => setCountdown(null), 700);
+          }
+        }, 800);
+        return () => clearInterval(iv);
+      }
     }
-  }, [buzzer.roundId]);
+  }, [buzzer.roundId, buzzer.open, buzzer.locked]);
 
-  // 偵測「剛開放搶答」→ 跑 3-2-1 倒數動畫 + 滴答聲
+  // 關閉時清掉倒數
   useEffect(() => {
-    if (buzzer.open && !buzzer.locked && !wasOpenRef.current) {
-      wasOpenRef.current = true;
-      // 啟動倒數：3 → 2 → 1 → 搶!
-      let n = 3;
-      setCountdown(3);
-      _sfx.tick();
-      if (navigator.vibrate) navigator.vibrate(50);
-      const iv = setInterval(() => {
-        n -= 1;
-        if (n > 0) {
-          setCountdown(n);
-          _sfx.tick();
-          if (navigator.vibrate) navigator.vibrate(50);
-        } else {
-          setCountdown('搶!');
-          _sfx.go();
-          if (navigator.vibrate) navigator.vibrate(150);
-          clearInterval(iv);
-          setTimeout(() => setCountdown(null), 700);
-        }
-      }, 800);
-    }
-    if (!buzzer.open) { wasOpenRef.current = false; setCountdown(null); }
-  }, [buzzer.open, buzzer.locked]);
+    if (!buzzer.open) setCountdown(null);
+  }, [buzzer.open]);
 
   // 偵測「我搶到第一名」→ 彩帶 + 勝利音效
   useEffect(() => {
